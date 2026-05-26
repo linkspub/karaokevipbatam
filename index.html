@@ -469,7 +469,9 @@ body.screen2-mode::before,body.screen2-mode::after{display:none;}
       </div>
       <div class="preview-thumb" id="previewThumb" style="position:relative;overflow:hidden;padding:0;">
         <div id="previewThumbEmpty" style="width:100%;height:155px;display:flex;align-items:center;justify-content:center;font-size:32px;color:rgba(255,255,255,0.15);">🎵</div>
-        <div id="previewPlayerDiv" style="position:absolute;top:0;left:0;width:100%;height:155px;display:none;pointer-events:none;"></div>
+        <img id="previewThumbImg" src="" alt="" style="width:100%;height:155px;object-fit:cover;display:none;">
+        <!-- Player tersembunyi — hanya sebagai master controller untuk Layar 2, tanpa suara & tidak terlihat -->
+        <div id="previewPlayerDiv" style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none;opacity:0;overflow:hidden;"></div>
       </div>
       <div class="preview-info" id="previewInfo" style="color:rgba(255,255,255,0.3);font-style:italic;">Pilih lagu untuk preview</div>
       <div class="preview-mini-bar">
@@ -920,7 +922,8 @@ function playSelected() {
   /* Step 1 — CUE both players (load without auto-playing) */
   if (previewYTReady && previewYTPlayer) {
     try { previewYTPlayer.cueVideoById(s.id); } catch(e) {}
-    document.getElementById('previewPlayerDiv').style.display = 'block';
+    const _timg = document.getElementById('previewThumbImg');
+    if (_timg) { _timg.src = 'https://img.youtube.com/vi/' + s.id + '/hqdefault.jpg'; _timg.style.display = 'block'; }
     document.getElementById('previewThumbEmpty').style.display = 'none';
   } else {
     pendingVideoId = s.id; /* loaded when previewYTPlayer.onReady fires */
@@ -966,9 +969,9 @@ function clearPlaylist() {
   playlist = []; currentIndex = 0; isPlaying = false; updatePlayBtn(); stopProgressTimer();
   try { playerWindow?.postMessage({ type: 'pause' }, '*'); } catch(e) {}
   try { if (previewYTReady && previewYTPlayer) previewYTPlayer.stopVideo(); } catch(e) {}
-  const playerDiv = document.getElementById('previewPlayerDiv');
+  const _timg2 = document.getElementById('previewThumbImg');
   const emptyEl = document.getElementById('previewThumbEmpty');
-  if (playerDiv) playerDiv.style.display = 'none';
+  if (_timg2) { _timg2.style.display = 'none'; _timg2.src = ''; }
   if (emptyEl) emptyEl.style.display = 'flex';
   renderSongRows(); updatePreview(null); renderQueueModal(); showNotif('🗑 Semua lagu dihapus dari antrian');
 }
@@ -1236,13 +1239,18 @@ function renderSongRows() {
 function updatePreview(song) {
   const infoEl = document.getElementById('previewInfo');
   const emptyEl = document.getElementById('previewThumbEmpty');
-  const playerDiv = document.getElementById('previewPlayerDiv');
+  const timg = document.getElementById('previewThumbImg');
   if (!infoEl) return;
   if (!song) {
     if (emptyEl) emptyEl.style.display = 'flex';
-    if (playerDiv) playerDiv.style.display = 'none';
+    if (timg) { timg.style.display = 'none'; timg.src = ''; }
     infoEl.textContent = 'Pilih lagu untuk preview'; infoEl.style.color = 'rgba(255,255,255,0.3)';
     return;
+  }
+  if (timg && song.id) {
+    timg.src = 'https://img.youtube.com/vi/' + song.id + '/hqdefault.jpg';
+    timg.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
   }
   infoEl.textContent = song.title; infoEl.style.color = '#ddd';
 }
@@ -1542,7 +1550,8 @@ function onYouTubeIframeAPIReady() {
           if (pendingVideoId) {
             const vid = pendingVideoId; pendingVideoId = null;
             e.target.cueVideoById(vid);
-            document.getElementById('previewPlayerDiv').style.display = 'block';
+            const _otimg = document.getElementById('previewThumbImg');
+            if (_otimg) { _otimg.src = 'https://img.youtube.com/vi/' + vid + '/hqdefault.jpg'; _otimg.style.display = 'block'; }
             document.getElementById('previewThumbEmpty').style.display = 'none';
             if (playerWindow && !playerWindow.closed && playerReady)
               try { playerWindow.postMessage({ type: 'cue', id: vid }, '*'); } catch(ex) {}
