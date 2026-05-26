@@ -1539,13 +1539,19 @@ function onYouTubeIframeAPIReady() {
   if (!isScreen2 && !isRemote) {
     /* Preview player — MASTER player. Layar 2 mirrors this. */
     previewYTPlayer = new YT.Player('previewPlayerDiv', {
-      width: '100%', height: '120',
+      width: '1', height: '1',
       videoId: '',
-      playerVars: { autoplay: 1, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1, mute: 1 },
+      playerVars: { autoplay: 0, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1, mute: 1 },
       events: {
         onReady: function(e) {
           previewYTReady = true;
-          e.target.mute(); /* Preview player selalu mute — audio hanya dari Layar 2 */
+          e.target.mute();
+          e.target.setVolume(0);
+          /* Setelah player siap, sembunyikan iframe-nya sepenuhnya */
+          try {
+            const iframe = document.querySelector('#previewPlayerDiv iframe');
+            if (iframe) iframe.style.cssText = 'display:none!important;width:0!important;height:0!important;';
+          } catch(ex) {}
           /* Load any video queued before player was ready — cue both then start together */
           if (pendingVideoId) {
             const vid = pendingVideoId; pendingVideoId = null;
@@ -1566,6 +1572,8 @@ function onYouTubeIframeAPIReady() {
         onStateChange: function(e) {
           if (e.data === 1) { /* playing */
             isPlaying = true; updatePlayBtn();
+            /* Paksa tetap mute setiap kali video mulai play */
+            try { e.target.mute(); e.target.setVolume(0); } catch(ex) {}
             /* Drive progress + sync Layar 2 every second */
             clearInterval(window._previewProgTimer);
             window._previewProgTimer = setInterval(() => {
