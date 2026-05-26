@@ -470,8 +470,6 @@ body.screen2-mode::before,body.screen2-mode::after{display:none;}
       <div class="preview-thumb" id="previewThumb" style="position:relative;overflow:hidden;padding:0;">
         <div id="previewThumbEmpty" style="width:100%;height:155px;display:flex;align-items:center;justify-content:center;font-size:32px;color:rgba(255,255,255,0.15);">🎵</div>
         <img id="previewThumbImg" src="" alt="" style="width:100%;height:155px;object-fit:cover;display:none;">
-        <!-- Player tersembunyi — hanya sebagai master controller untuk Layar 2, tanpa suara & tidak terlihat -->
-        <div id="previewPlayerDiv" style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none;opacity:0;overflow:hidden;"></div>
       </div>
       <div class="preview-info" id="previewInfo" style="color:rgba(255,255,255,0.3);font-style:italic;">Pilih lagu untuk preview</div>
       <div class="preview-mini-bar">
@@ -871,7 +869,7 @@ function openPlayer() {
   showNotif('📺 Layar 2 dibuka — siap memutar');
 }
 
-/* ---- Messages from Layar 2 (mirror only — preview player is master) ---- */
+/* ---- Messages from Layar 2 ---- */
 window.addEventListener('message', e => {
   if (isRemote || isScreen2) return;
   const d = e.data;
@@ -879,15 +877,12 @@ window.addEventListener('message', e => {
     playerReady = true;
     try { playerWindow.postMessage({ type: 'volume', val: volVal }, '*'); } catch(ex) {}
     if (muteMode) try { playerWindow.postMessage({ type: 'mute', val: true }, '*'); } catch(ex) {}
-    /* Send current playing song — cue then seek to exact preview position */
     const curSong = playlist[currentIndex];
     if (curSong) {
       const videoAge = (Date.now() - _newVideoTimestamp) / 1000;
       if (videoAge < 5) {
-        /* New video just started — cue Layar 2 then start it via resume (already handled by _syncStartTimer) */
         try { playerWindow.postMessage({ type: 'cue', id: curSong.id }, '*'); } catch(ex) {}
       } else {
-        /* Video already in progress — load and seek to match preview player */
         try { playerWindow.postMessage({ type: 'play', id: curSong.id }, '*'); } catch(ex) {}
         setTimeout(() => {
           if (previewYTReady && previewYTPlayer && playerWindow && !playerWindow.closed) {
@@ -902,7 +897,14 @@ window.addEventListener('message', e => {
     }
     return;
   }
-  /* 'ended' from Layar 2 is ignored — preview player's onStateChange handles it */
+  /* Terima 'ended' dari Layar 2 — fake player tidak bisa deteksi ini sendiri */
+  if (d && d.type === 'ended') { songEnded(); return; }
+  /* Terima 'progress' dari Layar 2 — update durasi & progress bar */
+  if (d && d.type === 'progress') {
+    if (previewYTPlayer && previewYTPlayer._setDuration) previewYTPlayer._setDuration(d.duration || 0);
+    if (d.duration > 0) { updateProgress(d.current, d.duration); elapsedSeconds = Math.floor(d.current); broadcastProgress(d.current, d.duration); }
+    return;
+  }
 });
 
 /* ---- Play / Pause ---- */
@@ -1535,75 +1537,64 @@ function r_addSong(item) {
 var ytPlayer, ytProgTimer, ytReady = false, ytPendingId = null;
 var previewYTPlayer, previewYTReady = false;
 
+/* ============================================================
+   FAKE PREVIEW PLAYER — timer-based, tanpa YouTube, tanpa suara
+   Satu-satunya sumber suara adalah Layar 2.
+   ============================================================ */
+function initFakePreviewPlayer() {
+  let _elapsedMs = 0, _startMs = 0, _playing = false, _duration = 0;
+  function fireState(state) {
+    if (state === 1) {
+      isPlaying = true; updatePlayBtn();
+      clearInterval(window._previewProgTimer);
+      window._previewProgTimer = setInterval(() => {
+        const cur = previewYTPlayer.getCurrentTime();
+        const dur = previewYTPlayer.getDuration();
+        if (dur > 0) { updateProgress(cur, dur); elapsedSeconds = Math.floor(cur); }
+        const videoAge = (Date.now() - _newVideoTimestamp) / 1000;
+        if (playerWindow && !playerWindow.closed) {
+          if (videoAge > 60) try { playerWindow.postMessage({ type: 'syncPos', val: cur }, '*'); } catch(ex) {}
+          const s = playlist[currentIndex];
+          try { playerWindow.postMessage({ type: 'songInfo', title: s?.title || '', channel: s?.channel || '', cur, dur }, '*'); } catch(ex) {}
+        }
+        broadcastProgress(cur, dur);
+      }, 1000);
+    } else {
+      isPlaying = false; updatePlayBtn();
+      clearInterval(window._previewProgTimer);
+    }
+  }
+  previewYTPlayer = {
+    _setDuration: function(d) { _duration = d; },
+    cueVideoById: function(id) { _elapsedMs = 0; },
+    playVideo: function() { if (_playing) return; _playing = true; _startMs = Date.now() - _elapsedMs; fireState(1); },
+    pauseVideo: function() { if (!_playing) return; _playing = false; _elapsedMs = Date.now() - _startMs; fireState(2); },
+    stopVideo: function() { _playing = false; _elapsedMs = 0; clearInterval(window._previewProgTimer); isPlaying = false; updatePlayBtn(); },
+    getCurrentTime: function() { return _playing ? (Date.now() - _startMs) / 1000 : _elapsedMs / 1000; },
+    getDuration: function() { return _duration; },
+    mute: function() {}, unMute: function() {}, setVolume: function() {}
+  };
+  previewYTReady = true;
+  if (pendingVideoId) {
+    const vid = pendingVideoId; pendingVideoId = null;
+    previewYTPlayer.cueVideoById(vid);
+    const timg = document.getElementById('previewThumbImg');
+    if (timg) { timg.src = 'https://img.youtube.com/vi/' + vid + '/hqdefault.jpg'; timg.style.display = 'block'; }
+    const emptyEl = document.getElementById('previewThumbEmpty');
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (playerWindow && !playerWindow.closed && playerReady)
+      try { playerWindow.postMessage({ type: 'cue', id: vid }, '*'); } catch(ex) {}
+    clearTimeout(window._syncStartTimer);
+    window._syncStartTimer = setTimeout(() => {
+      previewYTPlayer.playVideo();
+      try { if (playerWindow && !playerWindow.closed) playerWindow.postMessage({ type: 'resume' }, '*'); } catch(ex) {}
+    }, 1500);
+  }
+}
+
 function onYouTubeIframeAPIReady() {
   if (!isScreen2 && !isRemote) {
-    /* Preview player — MASTER player. Layar 2 mirrors this. */
-    previewYTPlayer = new YT.Player('previewPlayerDiv', {
-      width: '1', height: '1',
-      videoId: '',
-      playerVars: { autoplay: 0, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1, mute: 1 },
-      events: {
-        onReady: function(e) {
-          previewYTReady = true;
-          e.target.mute();
-          e.target.setVolume(0);
-          /* Setelah player siap, sembunyikan iframe-nya sepenuhnya */
-          try {
-            const iframe = document.querySelector('#previewPlayerDiv iframe');
-            if (iframe) iframe.style.cssText = 'display:none!important;width:0!important;height:0!important;';
-          } catch(ex) {}
-          /* Load any video queued before player was ready — cue both then start together */
-          if (pendingVideoId) {
-            const vid = pendingVideoId; pendingVideoId = null;
-            e.target.cueVideoById(vid);
-            const _otimg = document.getElementById('previewThumbImg');
-            if (_otimg) { _otimg.src = 'https://img.youtube.com/vi/' + vid + '/hqdefault.jpg'; _otimg.style.display = 'block'; }
-            document.getElementById('previewThumbEmpty').style.display = 'none';
-            if (playerWindow && !playerWindow.closed && playerReady)
-              try { playerWindow.postMessage({ type: 'cue', id: vid }, '*'); } catch(ex) {}
-            /* Start both simultaneously */
-            clearTimeout(window._syncStartTimer);
-            window._syncStartTimer = setTimeout(() => {
-              try { e.target.playVideo(); } catch(ex) {}
-              try { if (playerWindow && !playerWindow.closed) playerWindow.postMessage({ type: 'resume' }, '*'); } catch(ex) {}
-            }, 1500);
-          }
-        },
-        onStateChange: function(e) {
-          if (e.data === 1) { /* playing */
-            isPlaying = true; updatePlayBtn();
-            /* Paksa tetap mute setiap kali video mulai play */
-            try { e.target.mute(); e.target.setVolume(0); } catch(ex) {}
-            /* Drive progress + sync Layar 2 every second */
-            clearInterval(window._previewProgTimer);
-            window._previewProgTimer = setInterval(() => {
-              if (!previewYTReady || !previewYTPlayer) return;
-              try {
-                const cur = previewYTPlayer.getCurrentTime();
-                const dur = previewYTPlayer.getDuration();
-                if (dur > 0) { updateProgress(cur, dur); elapsedSeconds = Math.floor(cur); }
-                const videoAge = (Date.now() - _newVideoTimestamp) / 1000;
-                if (playerWindow && !playerWindow.closed) {
-                  /* Only sync position AFTER 60 s from video start — prevents skipping ads/intro */
-                  if (videoAge > 60) playerWindow.postMessage({ type: 'syncPos', val: cur }, '*');
-                  /* Always update overlay progress bar on Screen 2 */
-                  const s = playlist[currentIndex];
-                  playerWindow.postMessage({ type: 'songInfo', title: s?.title || '', channel: s?.channel || '', cur, dur }, '*');
-                }
-              } catch(ex) {}
-            }, 1000);
-          } else if (e.data === 2) { /* paused */
-            isPlaying = false; updatePlayBtn();
-            clearInterval(window._previewProgTimer);
-          } else if (e.data === 0) { /* ended */
-            isPlaying = false; updatePlayBtn();
-            clearInterval(window._previewProgTimer);
-            songEnded();
-          }
-        }
-      }
-    });
-    return;
+    return; /* Console pakai fake timer player — tidak perlu YouTube IFrame */
   }
   if (!isScreen2) return;
   ytPlayer = new YT.Player('player', {
@@ -1696,10 +1687,8 @@ window.addEventListener('load', () => {
     buildVK();
     document.getElementById('searchInput').addEventListener('click', () => document.getElementById('searchInput').select?.());
     document.getElementById('openPlayerBtn').addEventListener('click', openPlayer);
-    /* Load YouTube IFrame API for preview player */
-    const ytScript = document.createElement('script');
-    ytScript.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(ytScript);
+    /* Gunakan fake timer player — TIDAK ada YouTube IFrame di console */
+    initFakePreviewPlayer();
   }
 
   if (isRemote && db) {
