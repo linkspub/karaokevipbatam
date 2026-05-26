@@ -1034,7 +1034,7 @@ function changeVol(d) {
   volVal = Math.max(0, Math.min(100, volVal + d));
   document.getElementById('volVal').textContent = volVal;
   try { playerWindow?.postMessage({ type: 'volume', val: volVal }, '*'); } catch(e) {}
-  try { if (previewYTReady && previewYTPlayer) previewYTPlayer.setVolume(volVal); } catch(e) {}
+  /* Preview player selalu mute — volume hanya dikirim ke Layar 2 */
   showNotif('🔊 Volume: ' + volVal + '%'); broadcastState();
 }
 function changePitch(d) {
@@ -1055,7 +1055,7 @@ function toggleMute(btn) {
   muteMode = !muteMode; btn.classList.toggle('active-state', muteMode);
   document.getElementById('muteBtnIcon').textContent = muteMode ? '🔇' : '🔊';
   try { playerWindow?.postMessage({ type: 'mute', val: muteMode }, '*'); } catch(e) {}
-  try { if (previewYTReady && previewYTPlayer) { muteMode ? previewYTPlayer.mute() : previewYTPlayer.unMute(); } } catch(e) {}
+  /* Preview player selalu tetap mute — tombol mute hanya mengatur Layar 2 */
   showNotif(muteMode ? '🔇 Mute ON' : '🔊 Mute OFF');
 }
 function toggleVocal(btn) { vocalMode = !vocalMode; btn.classList.toggle('active-state', vocalMode); showNotif(vocalMode ? '🎤 Vocal ON' : '🎤 Vocal OFF (Instrumental)'); }
@@ -1088,7 +1088,7 @@ const BANNER_MODE = 'slideshow'; /* <-- ganti ke 'marquee' untuk teks berjalan *
 /* ---- PENGATURAN MODE SLIDESHOW ---- */
 /* Masukkan URL foto iklan Anda di sini (bisa banyak foto) */
 const BANNER_PHOTOS = [
-  'https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg4g-kGRZMCLESGXWhZ8GwR-KmwAk1WwyJcMPAJeL2HgwT_w65nTgp-oJZpRp3546rf22DmvffYmONkHMEwVHjRXOaupQYENIrsjG8uMXTEc92Xvj8w39PCukDpN8M3Q32-sLsCtvLPrbRDMmvCijuNf1EfBT9FgiUvlcbcDwHXu7Z-vSoWA4uAlofiq7c/w945-h600-p-k-no-nu/ChatGPT%20Image%2026%20Mei%202026,%2017.04.15.png',
+  'https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi8sPPFT6Y6C4cNDePxUmwHgNCzCbU_DiObSGK4rto_cQ7v_Ra1Xeo-PqeM0t2QluDuFrRqkclXA4HrbAxiBbqVnApjWCBFthc6jlYOxN3BMRiNI_1Hc6IWj_xYczjZ902pwrB6ytTEeJ3DaF3Vx45iRRnxf6zKMrjzcuCCRohFDh8L1bX1ZqF7MOYTCNc/s1280/Black%20Abstract%20Whiskey%20Night%20Party%20Tabloid%20-%20Made%20with%20PosterMyWall.jpg',
   /* tambahkan URL foto lagi di bawah ini: */
   /* 'https://blogger.googleusercontent.com/...foto2.jpg', */
   /* 'https://blogger.googleusercontent.com/...foto3.jpg', */
@@ -1533,12 +1533,11 @@ function onYouTubeIframeAPIReady() {
     previewYTPlayer = new YT.Player('previewPlayerDiv', {
       width: '100%', height: '120',
       videoId: '',
-      playerVars: { autoplay: 1, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1 },
+      playerVars: { autoplay: 1, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1, mute: 1 },
       events: {
         onReady: function(e) {
           previewYTReady = true;
-          e.target.setVolume(volVal);
-          if (muteMode) e.target.mute();
+          e.target.mute(); /* Preview player selalu mute — audio hanya dari Layar 2 */
           /* Load any video queued before player was ready — cue both then start together */
           if (pendingVideoId) {
             const vid = pendingVideoId; pendingVideoId = null;
